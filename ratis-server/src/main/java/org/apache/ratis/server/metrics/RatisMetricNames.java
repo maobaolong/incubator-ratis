@@ -28,12 +28,31 @@ public final class RatisMetricNames {
   public static final String LEADER_ELECTION_LATENCY = "leaderElectionLatency";
   public static final String LAST_LEADER_ELAPSED_TIME = "lastLeaderElapsedTime";
 
-  public static final String FOLLOWER_LAST_HEARTBEAT_ELAPSED_TIME_METRIC = "follower-%s-lastHeartbeatElapsedTime";
+  public static final String
+      LEADER_METRIC_FOLLOWER_LAST_HEARTBEAT_ELAPSED_TIME_METRIC =
+      "follower_%s_lastHeartbeatElapsedTime";
+  public static final String LEADER_METRIC_PEER_COMMIT_INDEX =
+      "%s_peerCommitIndex";
 
   public static final String STATEMACHINE_APPLIED_INDEX_GAUGE =
-      "statemachine_applied_index";
+      "statemachineAppliedIndex";
   public static final String STATEMACHINE_APPLY_COMPLETED_GAUGE =
-      "statemachine_apply_completed_index";
+      "statemachineApplyCompletedIndex";
+
+  // Raft client read request metric timer.
+  public static final String RAFT_CLIENT_READ_REQUEST = "clientReadRequest";
+
+  public static final String RAFT_CLIENT_STALE_READ_REQUEST = "clientStaleReadRequest";
+
+  public static final String RAFT_CLIENT_WRITE_REQUEST = "clientWriteRequest";
+
+  public static final String RAFT_CLIENT_WATCH_REQUEST = "clientWatch%sRequest";
+
+  public static final String RETRY_REQUEST_CACHE_HIT_COUNTER = "numRetryCacheHits";
+
+  public static final String REQUEST_QUEUE_LIMIT_HIT_COUNTER = "numRequestQueueLimitHits";
+
+  public static final String REQUEST_QUEUE_SIZE = "numPendingRequestInQueue";
 
   //////////////////////////////
   // Raft Log Write Path Metrics
@@ -89,4 +108,5 @@ public final class RatisMetricNames {
   // Time required to load and process raft log segments during restart
   public static final String RAFT_LOG_LOAD_SEGMENT_LATENCY = "segmentLoadLatency";
 
+  public static final String FOLLOWER_APPEND_ENTRIES_LATENCY = "follower_append_entry_latency";
 }

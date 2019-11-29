@@ -19,26 +19,21 @@
 package org.apache.ratis.server.metrics;
 
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.ratis.metrics.MetricRegistries;
 import org.apache.ratis.metrics.MetricRegistryInfo;
-import org.apache.ratis.metrics.JVMMetrics;
-import org.apache.ratis.metrics.MetricsReporting;
 import org.apache.ratis.metrics.RatisMetricRegistry;
 
 public class RatisMetrics {
-  public final static String RATIS_LOG_WORKER_METRICS_DESC = "Ratis metrics";
-  public final static String RATIS_LOG_WORKER_METRICS = "ratis_log_worker";
-  public final static String RATIS_APPLICATION_NAME_METRICS = "ratis_core";
+  public static final String RATIS_APPLICATION_NAME_METRICS = "ratis_core";
+  public static final String RATIS_LOG_WORKER_METRICS_DESC = "Metrics for Log Worker";
+  public static final String RATIS_LOG_WORKER_METRICS = "log_worker";
   public static final String RATIS_LEADER_ELECTION_METRICS = "leader_election";
   public static final String RATIS_LEADER_ELECTION_METRICS_DESC = "Metrics for Ratis Leader Election.";
-  public static final String RATIS_HEARTBEAT_METRICS = "heartbeat";
-  public static final String RATIS_HEARTBEAT_METRICS_DESC = "Metrics for Ratis Heartbeat.";
-  public static final String RATIS_STATEMACHINE_METRICS = "ratis_state_machine";
+  public static final String RATIS_STATEMACHINE_METRICS = "state_machine";
   public static final String RATIS_STATEMACHINE_METRICS_DESC = "Metrics for State Machine Updater";
-
-  static MetricsReporting metricsReporting = new MetricsReporting(500, TimeUnit.MILLISECONDS);
+  public static final String RATIS_SERVER_METRICS = "server";
+  public static final String RATIS_SERVER_METRICS_DESC = "Metrics for Raft server";
 
   private static RatisMetricRegistry create(MetricRegistryInfo info) {
     Optional<RatisMetricRegistry> metricRegistry = MetricRegistries.global().get(info);
@@ -46,24 +41,18 @@ public class RatisMetrics {
       return metricRegistry.get();
     }
     RatisMetricRegistry registry = MetricRegistries.global().create(info);
-    metricsReporting
-        .startMetricsReporter(registry, MetricsReporting.MetricReporterType.JMX,
-            MetricsReporting.MetricReporterType.HADOOP2);
-    // JVM metrics
-    JVMMetrics
-        .startJVMReporting(1000, TimeUnit.MILLISECONDS, MetricsReporting.MetricReporterType.JMX);
-
     return registry;
   }
 
   public static RatisMetricRegistry getMetricRegistryForLeaderElection(String serverId) {
     return create(new MetricRegistryInfo(serverId, RATIS_APPLICATION_NAME_METRICS, RATIS_LEADER_ELECTION_METRICS,
-            RATIS_LEADER_ELECTION_METRICS_DESC));
+        RATIS_LEADER_ELECTION_METRICS_DESC));
   }
 
-  public static RatisMetricRegistry getMetricRegistryForHeartbeat(String serverId) {
-    return create(new MetricRegistryInfo(serverId, RATIS_APPLICATION_NAME_METRICS, RATIS_HEARTBEAT_METRICS,
-        RATIS_HEARTBEAT_METRICS_DESC));
+  public static RatisMetricRegistry getMetricRegistryForRaftServer(String serverId) {
+    return create(new MetricRegistryInfo(serverId,
+        RATIS_APPLICATION_NAME_METRICS, RATIS_SERVER_METRICS,
+        RATIS_SERVER_METRICS_DESC));
   }
 
   public static RatisMetricRegistry getMetricRegistryForStateMachine(String serverId) {
@@ -86,5 +75,4 @@ public class RatisMetrics {
             RATIS_LOG_WORKER_METRICS_DESC));
     return ratisMetricRegistry.orElse(null);
   }
-
 }

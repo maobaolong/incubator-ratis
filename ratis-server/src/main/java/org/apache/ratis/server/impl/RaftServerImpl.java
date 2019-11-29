@@ -60,6 +60,8 @@ import static org.apache.ratis.util.LifeCycle.State.NEW;
 import static org.apache.ratis.util.LifeCycle.State.RUNNING;
 import static org.apache.ratis.util.LifeCycle.State.STARTING;
 
+import com.codahale.metrics.Timer;
+
 public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronousProtocol,
     RaftClientProtocol, RaftClientAsynchronousProtocol {
   public static final Logger LOG = LoggerFactory.getLogger(RaftServerImpl.class);
@@ -87,6 +89,7 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
 
   private final RaftServerJmxAdapter jmxAdapter;
   private final LeaderElectionMetrics leaderElectionMetricsRegistry;
+  private final RaftServerMetrics raftServerMetrics;
 
   private AtomicReference<TermIndex> inProgressInstallSnapshotRequest;
 
@@ -113,6 +116,7 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
 
     this.jmxAdapter = new RaftServerJmxAdapter();
     this.leaderElectionMetricsRegistry = getLeaderElectionMetrics(this);
+    this.raftServerMetrics = RaftServerMetrics.getRaftServerMetrics(this);
   }
 
   private RetryCache initRetryCache(RaftProperties prop) {
@@ -141,8 +145,7 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
   }
 
   int getRandomTimeoutMs() {
-    return minTimeoutMs + ThreadLocalRandom.current().nextInt(
-        maxTimeoutMs - minTimeoutMs + 1);
+    return minTimeoutMs + ThreadLocalRandom.current().nextInt(maxTimeoutMs - minTimeoutMs + 1);
   }
 
   int getSleepDeviationThresholdMs() {
@@ -295,6 +298,14 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
 
   public boolean isLeader() {
     return role.isLeader();
+  }
+
+  /**
+   * return ref to the commit info cache.
+   * @return commit info cache
+   */
+  public CommitInfoCache getCommitInfoCache() {
+    return commitInfoCache;
   }
 
   /**
@@ -531,49 +542,60 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
       RaftClientRequest request) throws IOException {
     assertLifeCycleState(RUNNING);
     LOG.debug("{}: receive client request({})", getMemberId(), request);
+    Timer timer = raftServerMetrics.getClientRequestTimer(request);
+    final Timer.Context timerContext = (timer != null) ? timer.time() : null;
+
+    CompletableFuture<RaftClientReply> replyFuture;
     if (request.is(RaftClientRequestProto.TypeCase.STALEREAD)) {
-      return staleReadAsync(request);
+      replyFuture =  staleReadAsync(request);
+    } else {
+      // first check the server's leader state
+      CompletableFuture<RaftClientReply> reply = checkLeaderState(request, null);
+      if (reply != null) {
+        return reply;
+      }
+      // let the state machine handle read-only request from client
+      final StateMachine stateMachine = getStateMachine();
+      if (request.is(RaftClientRequestProto.TypeCase.READ)) {
+        // TODO: We might not be the leader anymore by the time this completes.
+        // See the RAFT paper section 8 (last part)
+        replyFuture =  processQueryFuture(stateMachine.query(request.getMessage()), request);
+      } else if (request.is(RaftClientRequestProto.TypeCase.WATCH)) {
+        replyFuture = watchAsync(request);
+      } else {
+        // query the retry cache
+        RetryCache.CacheQueryResult previousResult = retryCache.queryCache(
+            request.getClientId(), request.getCallId());
+        if (previousResult.isRetry()) {
+          // if the previous attempt is still pending or it succeeded, return its
+          // future
+          raftServerMetrics.onRetryRequestCacheHit();
+          replyFuture = previousResult.getEntry().getReplyFuture();
+        } else {
+          final RetryCache.CacheEntry cacheEntry = previousResult.getEntry();
+
+          // TODO: this client request will not be added to pending requests until
+          // later which means that any failure in between will leave partial state in
+          // the state machine. We should call cancelTransaction() for failed requests
+          TransactionContext context = stateMachine.startTransaction(request);
+          if (context.getException() != null) {
+            RaftClientReply exceptionReply = new RaftClientReply(request,
+                new StateMachineException(getMemberId(), context.getException()), getCommitInfos());
+            cacheEntry.failWithReply(exceptionReply);
+            replyFuture =  CompletableFuture.completedFuture(exceptionReply);
+          } else {
+            replyFuture = appendTransaction(request, context, cacheEntry);
+          }
+        }
+      }
     }
 
-    // first check the server's leader state
-    CompletableFuture<RaftClientReply> reply = checkLeaderState(request, null);
-    if (reply != null) {
-      return reply;
-    }
-
-    // let the state machine handle read-only request from client
-    final StateMachine stateMachine = getStateMachine();
-    if (request.is(RaftClientRequestProto.TypeCase.READ)) {
-      // TODO: We might not be the leader anymore by the time this completes.
-      // See the RAFT paper section 8 (last part)
-      return processQueryFuture(stateMachine.query(request.getMessage()), request);
-    }
-
-    if (request.is(RaftClientRequestProto.TypeCase.WATCH)) {
-      return watchAsync(request);
-    }
-
-    // query the retry cache
-    RetryCache.CacheQueryResult previousResult = retryCache.queryCache(
-        request.getClientId(), request.getCallId());
-    if (previousResult.isRetry()) {
-      // if the previous attempt is still pending or it succeeded, return its
-      // future
-      return previousResult.getEntry().getReplyFuture();
-    }
-    final RetryCache.CacheEntry cacheEntry = previousResult.getEntry();
-
-    // TODO: this client request will not be added to pending requests until
-    // later which means that any failure in between will leave partial state in
-    // the state machine. We should call cancelTransaction() for failed requests
-    TransactionContext context = stateMachine.startTransaction(request);
-    if (context.getException() != null) {
-      RaftClientReply exceptionReply = new RaftClientReply(request,
-          new StateMachineException(getMemberId(), context.getException()), getCommitInfos());
-      cacheEntry.failWithReply(exceptionReply);
-      return CompletableFuture.completedFuture(exceptionReply);
-    }
-    return appendTransaction(request, context, cacheEntry);
+    replyFuture.whenComplete((clientReply, exception) -> {
+      if (clientReply.isSuccess() && timerContext != null) {
+        timerContext.stop();
+      }
+    });
+    return replyFuture;
   }
 
   private CompletableFuture<RaftClientReply> watchAsync(RaftClientRequest request) {
@@ -896,6 +918,7 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
     final long currentTerm;
     final long followerCommit = state.getLog().getLastCommittedIndex();
     final Optional<FollowerState> followerState;
+    Timer.Context timer = raftServerMetrics.getFollowerAppendEntryTimer().time();
     synchronized (this) {
       final boolean recognized = state.recognizeLeader(leaderId, leaderTerm);
       currentTerm = state.getCurrentTerm();
@@ -956,6 +979,7 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
       }
       logAppendEntries(isHeartbeat, () ->
           getMemberId() + ": succeeded to handle AppendEntries. Reply: " + ServerProtoUtils.toString(reply));
+      timer.stop();  // TODO: future never completes exceptionally?
       return reply;
     });
   }
@@ -1305,6 +1329,10 @@ public class RaftServerImpl implements RaftServerProtocol, RaftServerAsynchronou
 
   public LeaderElectionMetrics getLeaderElectionMetricsRegistry() {
     return leaderElectionMetricsRegistry;
+  }
+
+  public RaftServerMetrics getRaftServerMetrics() {
+    return raftServerMetrics;
   }
 
   private class RaftServerJmxAdapter extends JmxRegister implements RaftServerMXBean {

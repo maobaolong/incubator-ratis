@@ -27,11 +27,7 @@ import org.apache.ratis.protocol.RaftClientReply;
 import org.apache.ratis.protocol.RaftPeerId;
 import org.apache.ratis.server.RaftServer;
 import org.apache.ratis.server.RaftServerConfigKeys;
-import org.apache.ratis.server.impl.BlockRequestHandlingInjection;
-import org.apache.ratis.server.impl.RaftServerImpl;
-import org.apache.ratis.server.impl.RaftServerProxy;
-import org.apache.ratis.server.impl.RaftServerTestUtil;
-import org.apache.ratis.server.impl.RetryCacheTestUtil;
+import org.apache.ratis.server.impl.*;
 import org.apache.ratis.server.metrics.RatisMetricNames;
 import org.apache.ratis.server.metrics.RatisMetrics;
 import org.apache.ratis.server.raftlog.RaftLog;
@@ -41,6 +37,7 @@ import org.apache.ratis.util.ExitUtils;
 import org.apache.ratis.util.JavaUtils;
 import org.apache.ratis.util.LogUtils;
 import org.apache.ratis.util.TimeDuration;
+import org.apache.ratis.util.Timestamp;
 import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -411,7 +408,7 @@ public abstract class RaftBasicTests<CLUSTER extends MiniRaftCluster>
 
   public static void testRequestTimeout(boolean async, MiniRaftCluster cluster, Logger LOG) throws Exception {
     waitForLeader(cluster);
-    long time = System.currentTimeMillis();
+    final Timestamp startTime = Timestamp.currentTime();
     try (final RaftClient client = cluster.createClient()) {
       // Get the next callId to be used by the client
       long callId = RaftClientTestUtil.getCallId(client);
@@ -432,7 +429,7 @@ public abstract class RaftBasicTests<CLUSTER extends MiniRaftCluster>
       // Eventually the request would be accepted by the server
       // when the retry cache entry is invalidated.
       // The duration for which the client waits should be more than the retryCacheExpiryDuration.
-      TimeDuration duration = TimeDuration.valueOf(System.currentTimeMillis() - time, TimeUnit.MILLISECONDS);
+      final TimeDuration duration = startTime.elapsedTime();
       TimeDuration retryCacheExpiryDuration = RaftServerConfigKeys.RetryCache.expiryTime(cluster.getProperties());
       Assert.assertTrue(duration.compareTo(retryCacheExpiryDuration) >= 0);
     }
@@ -455,6 +452,7 @@ public abstract class RaftBasicTests<CLUSTER extends MiniRaftCluster>
 
       long appliedIndexBefore = (Long) appliedIndexGauge.getValue();
       long smAppliedIndexBefore = (Long) smAppliedIndexGauge.getValue();
+      checkFollowerCommitLagsLeader(cluster);
 
       if (async) {
         CompletableFuture<RaftClientReply> replyFuture = client.sendAsync(new SimpleMessage("abc"));
@@ -465,11 +463,32 @@ public abstract class RaftBasicTests<CLUSTER extends MiniRaftCluster>
 
       long appliedIndexAfter = (Long) appliedIndexGauge.getValue();
       long smAppliedIndexAfter = (Long) smAppliedIndexGauge.getValue();
+      checkFollowerCommitLagsLeader(cluster);
 
       Assert.assertTrue("StateMachine Applied Index not incremented",
           appliedIndexAfter > appliedIndexBefore);
       Assert.assertTrue("StateMachine Apply completed Index not incremented",
           smAppliedIndexAfter > smAppliedIndexBefore);
+    }
+  }
+
+  private static void checkFollowerCommitLagsLeader(MiniRaftCluster cluster) {
+    List<RaftServerImpl> followers = cluster.getFollowers();
+    RaftServerImpl leader = cluster.getLeader();
+
+    Gauge leaderCommitGauge = RaftServerMetrics
+        .getPeerCommitIndexGauge(leader, leader);
+
+    for (RaftServerImpl follower : followers) {
+      Gauge followerCommitGauge = RaftServerMetrics
+          .getPeerCommitIndexGauge(leader, follower);
+      Assert.assertTrue((Long)leaderCommitGauge.getValue() >=
+          (Long)followerCommitGauge.getValue());
+      Gauge followerMetric = RaftServerMetrics
+          .getPeerCommitIndexGauge(follower, follower);
+      System.out.println(followerCommitGauge.getValue());
+      System.out.println(followerMetric.getValue());
+      Assert.assertTrue((Long)followerCommitGauge.getValue()  <= (Long)followerMetric.getValue());
     }
   }
 

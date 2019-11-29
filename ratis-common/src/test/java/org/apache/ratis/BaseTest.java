@@ -40,13 +40,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public abstract class BaseTest {
   public final Logger LOG = LoggerFactory.getLogger(getClass());
 
   public static final TimeDuration HUNDRED_MILLIS = TimeDuration.valueOf(100, TimeUnit.MILLISECONDS);
-  public static final TimeDuration ONE_SECOND = TimeDuration.valueOf(1, TimeUnit.SECONDS);
+  public static final TimeDuration ONE_SECOND = TimeDuration.ONE_SECOND;
   public static final TimeDuration FIVE_SECONDS = TimeDuration.valueOf(5, TimeUnit.SECONDS);
 
   {
@@ -56,8 +57,21 @@ public abstract class BaseTest {
     ExitUtils.disableSystemExit();
   }
 
+  private final AtomicReference<Throwable> firstException = new AtomicReference<>();
+
+  public void setFirstException(Throwable e) {
+    if (firstException.compareAndSet(null, e)) {
+      LOG.error("Set firstException", e);
+    }
+  }
+
   @After
-  public void assertNotTerminated() {
+  public void assertNoFailures() {
+    final Throwable e = firstException.get();
+    if (e != null) {
+      throw new IllegalStateException("Failed: first exception was set", e);
+    }
+
     ExitUtils.assertNotTerminated();
   }
 

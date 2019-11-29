@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,6 +25,7 @@ import org.apache.ratis.examples.common.SubCommandBase;
 import org.apache.ratis.examples.filestore.FileStoreCommon;
 import org.apache.ratis.examples.filestore.FileStoreStateMachine;
 import org.apache.ratis.grpc.GrpcConfigKeys;
+import org.apache.ratis.metrics.JVMMetrics;
 import org.apache.ratis.protocol.RaftGroup;
 import org.apache.ratis.protocol.RaftGroupId;
 import org.apache.ratis.protocol.RaftPeer;
@@ -35,6 +36,7 @@ import org.apache.ratis.statemachine.StateMachine;
 import org.apache.ratis.thirdparty.com.google.protobuf.ByteString;
 import org.apache.ratis.util.LifeCycle;
 import org.apache.ratis.util.NetUtils;
+import org.apache.ratis.util.TimeDuration;
 
 import java.io.File;
 import java.util.Collections;
@@ -53,9 +55,10 @@ public class Server extends SubCommandBase {
   @Parameter(names = {"--storage", "-s"}, description = "Storage dir", required = true)
   private File storageDir;
 
-
   @Override
   public void run() throws Exception {
+    JVMMetrics.initJvmMetrics(TimeDuration.valueOf(10, TimeUnit.SECONDS));
+
     RaftPeerId peerId = RaftPeerId.valueOf(id);
     RaftProperties properties = new RaftProperties();
 
@@ -74,9 +77,10 @@ public class Server extends SubCommandBase {
         .setStateMachine(stateMachine).setProperties(properties)
         .setGroup(raftGroup)
         .build();
+
     raftServer.start();
 
-    for(; raftServer.getLifeCycleState() != LifeCycle.State.CLOSED;) {
+    for (; raftServer.getLifeCycleState() != LifeCycle.State.CLOSED; ) {
       TimeUnit.SECONDS.sleep(1);
     }
   }

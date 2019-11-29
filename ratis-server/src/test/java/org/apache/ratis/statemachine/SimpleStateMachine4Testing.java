@@ -24,8 +24,9 @@ import org.apache.ratis.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.proto.RaftProtos.RoleInfoProto;
 import org.apache.ratis.protocol.Message;
 import org.apache.ratis.protocol.RaftClientRequest;
-import org.apache.ratis.protocol.RaftGroup;
 import org.apache.ratis.protocol.RaftGroupId;
+import org.apache.ratis.protocol.RaftGroupMemberId;
+import org.apache.ratis.protocol.RaftPeerId;
 import org.apache.ratis.protocol.StateMachineException;
 import org.apache.ratis.server.RaftServer;
 import org.apache.ratis.server.RaftServerConfigKeys;
@@ -418,13 +419,17 @@ public class SimpleStateMachine4Testing extends BaseStateMachine {
     leaderElectionTimeoutInfo = roleInfoProto;
   }
 
-  @Override public void notifyNotLeader(Collection<TransactionContext> pendingEntries)
+  @Override
+  public void notifyNotLeader(Collection<TransactionContext> pendingEntries)
       throws IOException {
 
   }
 
-  @Override public void notifyLeader(RaftGroupId groupId, long lastCommittedIndex) {
-    notifiedAsLeader = true;
+  @Override
+  public void notifyLeaderChanged(RaftGroupMemberId groupMemberId, RaftPeerId raftPeerId) {
+    if (groupMemberId.getPeerId().equals(raftPeerId)) {
+      notifiedAsLeader = true;
+    }
   }
 
   public boolean isNotifiedAsLeader() {
