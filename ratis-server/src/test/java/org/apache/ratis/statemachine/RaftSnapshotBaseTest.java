@@ -17,6 +17,9 @@
  */
 package org.apache.ratis.statemachine;
 
+import static org.apache.ratis.server.metrics.RatisMetricNames.LOG_APPENDER_INSTALL_SNAPSHOT_METRIC;
+import static org.apache.ratis.server.metrics.RatisMetricNames.STATEMACHINE_TAKE_SNAPSHOT_TIMER;
+
 import org.apache.log4j.Level;
 import org.apache.ratis.BaseTest;
 import org.apache.ratis.MiniRaftCluster;
@@ -24,11 +27,13 @@ import org.apache.ratis.RaftTestUtil;
 import org.apache.ratis.RaftTestUtil.SimpleMessage;
 import org.apache.ratis.client.RaftClient;
 import org.apache.ratis.conf.RaftProperties;
+import org.apache.ratis.metrics.RatisMetricRegistry;
 import org.apache.ratis.protocol.RaftClientReply;
 import org.apache.ratis.protocol.RaftPeerId;
 import org.apache.ratis.server.RaftServerConfigKeys;
 import org.apache.ratis.server.impl.RaftServerImpl;
 import org.apache.ratis.server.impl.RaftServerTestUtil;
+import org.apache.ratis.server.metrics.RatisMetrics;
 import org.apache.ratis.server.raftlog.RaftLog;
 import org.apache.ratis.server.storage.RaftStorageDirectory;
 import org.apache.ratis.server.storage.RaftStorageDirectory.LogPathAndIndex;
@@ -36,7 +41,7 @@ import org.apache.ratis.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.statemachine.impl.SimpleStateMachineStorage;
 import org.apache.ratis.util.FileUtils;
 import org.apache.ratis.util.JavaUtils;
-import org.apache.ratis.util.LogUtils;
+import org.apache.ratis.util.Log4jUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -50,11 +55,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
+import com.codahale.metrics.Counter;
+import com.codahale.metrics.Timer;
+
 public abstract class RaftSnapshotBaseTest extends BaseTest {
   {
-    LogUtils.setLogLevel(RaftServerImpl.LOG, Level.DEBUG);
-    LogUtils.setLogLevel(RaftLog.LOG, Level.DEBUG);
-    LogUtils.setLogLevel(RaftClient.LOG, Level.DEBUG);
+    Log4jUtils.setLogLevel(RaftServerImpl.LOG, Level.DEBUG);
+    Log4jUtils.setLogLevel(RaftLog.LOG, Level.DEBUG);
+    Log4jUtils.setLogLevel(RaftClient.LOG, Level.DEBUG);
   }
 
   static final Logger LOG = LoggerFactory.getLogger(RaftSnapshotBaseTest.class);
@@ -213,13 +221,29 @@ public abstract class RaftSnapshotBaseTest extends BaseTest {
       // trigger setConfiguration
       cluster.setConfiguration(change.allPeersInNewConf);
 
+      // Verify installSnapshot counter on leader before restart.
+      verifyInstallSnapshotMetric(cluster.getLeader());
       RaftServerTestUtil.waitAndCheckNewConf(cluster, change.allPeersInNewConf, 0, null);
 
       // restart the peer and check if it can correctly handle conf change
       cluster.restartServer(cluster.getLeader().getId(), false);
       assertLeaderContent(cluster);
+      verifyTakeSnapshotMetric(cluster.getLeader());
     } finally {
       cluster.shutdown();
     }
+  }
+
+  protected void verifyInstallSnapshotMetric(RaftServerImpl leader) {
+    Counter installSnapshotCounter = leader.getRaftServerMetrics().getCounter(LOG_APPENDER_INSTALL_SNAPSHOT_METRIC);
+    Assert.assertNotNull(installSnapshotCounter);
+    Assert.assertTrue(installSnapshotCounter.getCount() >= 1);
+  }
+
+  private static void verifyTakeSnapshotMetric(RaftServerImpl leader) {
+    RatisMetricRegistry metricRegistry = RatisMetrics.getMetricRegistryForStateMachine(leader.getMemberId().toString());
+    Assert.assertNotNull(metricRegistry);
+    Timer timer = metricRegistry.timer(STATEMACHINE_TAKE_SNAPSHOT_TIMER);
+    Assert.assertTrue(timer.getCount() > 0);
   }
 }

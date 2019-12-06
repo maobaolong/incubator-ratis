@@ -15,43 +15,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.ratis;
+package org.apache.ratis.retry;
 
-import org.apache.ratis.proto.RaftProtos.ReplicationLevel;
+import org.apache.ratis.BaseTest;
+import org.apache.ratis.client.ClientRetryEvent;
+import org.apache.ratis.client.retry.RequestTypeDependentRetryPolicy;
 import org.apache.ratis.proto.RaftProtos.RaftClientRequestProto;
+import org.apache.ratis.proto.RaftProtos.ReplicationLevel;
 import org.apache.ratis.protocol.ClientId;
 import org.apache.ratis.protocol.RaftClientRequest;
 import org.apache.ratis.protocol.RaftGroupId;
 import org.apache.ratis.protocol.RaftPeerId;
-import org.apache.ratis.retry.RetryPolicies;
-import org.apache.ratis.retry.RetryPolicy;
 import org.apache.ratis.util.TimeDuration;
 import org.junit.Assert;
 import org.junit.Test;
 
-
+/** Test {@link RetryPolicy}. */
 public class TestRetryPolicy extends BaseTest {
+  @Override
+  public int getGlobalTimeoutSeconds() {
+    return 1;
+  }
 
   @Test
   public void testRetryMultipleTimesWithFixedSleep() {
     final int n = 4;
     final TimeDuration sleepTime = HUNDRED_MILLIS;
     final RetryPolicy policy = RetryPolicies.retryUpToMaximumCountWithFixedSleep(n, sleepTime);
-    final RaftClientRequest request = newRaftClientRequest(RaftClientRequest.readRequestType());
     for(int i = 1; i < 2*n; i++) {
+      final int attempt = i;
+      final RetryPolicy.Event event = () -> attempt;
+      final RetryPolicy.Action action = policy.handleAttemptFailure(event);
+
       final boolean expected = i < n;
-      Assert.assertEquals(expected, policy.shouldRetry(i, request));
+      Assert.assertEquals(expected, action.shouldRetry());
       if (expected) {
-        Assert.assertEquals(sleepTime, policy.getSleepTime(i, request));
+        Assert.assertEquals(sleepTime, action.getSleepTime());
       } else {
-        Assert.assertEquals(0L, policy.getSleepTime(i, request).getDuration());
+        Assert.assertEquals(0L, action.getSleepTime().getDuration());
       }
     }
   }
 
   @Test
   public void testRequestTypeDependentRetry() {
-    final RetryPolicies.RequestTypeDependentRetry.Builder b = RetryPolicies.RequestTypeDependentRetry.newBuilder();
+    final RequestTypeDependentRetryPolicy.Builder b = RequestTypeDependentRetryPolicy.newBuilder();
     final int n = 4;
     final TimeDuration writeSleep = HUNDRED_MILLIS;
     final RetryPolicies.RetryLimited writePolicy = RetryPolicies.retryUpToMaximumCountWithFixedSleep(n, writeSleep);
@@ -67,26 +75,37 @@ public class TestRetryPolicy extends BaseTest {
         RaftClientRequest.watchRequestType(1, ReplicationLevel.MAJORITY));
     for(int i = 1; i < 2*n; i++) {
       { //write
+        final ClientRetryEvent event = new ClientRetryEvent(i, writeRequest);
+        final RetryPolicy.Action action = policy.handleAttemptFailure(event);
+
         final boolean expected = i < n;
-        Assert.assertEquals(expected, policy.shouldRetry(i, writeRequest));
+        Assert.assertEquals(expected, action.shouldRetry());
         if (expected) {
-          Assert.assertEquals(writeSleep, policy.getSleepTime(i, writeRequest));
+          Assert.assertEquals(writeSleep, action.getSleepTime());
         } else {
-          Assert.assertEquals(0L, policy.getSleepTime(i, writeRequest).getDuration());
+          Assert.assertEquals(0L, action.getSleepTime().getDuration());
         }
       }
 
       { //read and stale read are using default
-        Assert.assertTrue(policy.shouldRetry(i, readRequest));
-        Assert.assertEquals(0L, policy.getSleepTime(i, readRequest).getDuration());
+        final ClientRetryEvent event = new ClientRetryEvent(i, readRequest);
+        final RetryPolicy.Action action = policy.handleAttemptFailure(event);
+        Assert.assertTrue(action.shouldRetry());
+        Assert.assertEquals(0L, action.getSleepTime().getDuration());
+      }
 
-        Assert.assertTrue(policy.shouldRetry(i, staleReadRequest));
-        Assert.assertEquals(0L, policy.getSleepTime(i, staleReadRequest).getDuration());
+      {
+        final ClientRetryEvent event = new ClientRetryEvent(i, staleReadRequest);
+        final RetryPolicy.Action action = policy.handleAttemptFailure(event);
+        Assert.assertTrue(action.shouldRetry());
+        Assert.assertEquals(0L, action.getSleepTime().getDuration());
       }
 
       { //watch has no retry
-        Assert.assertFalse(policy.shouldRetry(i, watchRequest));
-        Assert.assertEquals(0L, policy.getSleepTime(i, watchRequest).getDuration());
+        final ClientRetryEvent event = new ClientRetryEvent(i, watchRequest);
+        final RetryPolicy.Action action = policy.handleAttemptFailure(event);
+        Assert.assertFalse(action.shouldRetry());
+        Assert.assertEquals(0L, action.getSleepTime().getDuration());
       }
     }
 

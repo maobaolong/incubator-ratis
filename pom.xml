@@ -186,11 +186,11 @@
     <maven.min.version>3.3.9</maven.min.version>
 
     <!-- Contains all shaded thirdparty dependencies -->
-    <ratis.thirdparty.version>0.2.0</ratis.thirdparty.version>
+    <ratis.thirdparty.version>0.3.0</ratis.thirdparty.version>
 
     <!-- Need these for the protobuf compiler. *MUST* match what is in ratis-thirdparty -->
-    <shaded.protobuf.version>3.5.0</shaded.protobuf.version>
-    <shaded.grpc.version>1.16.0</shaded.grpc.version>
+    <shaded.protobuf.version>3.10.0</shaded.protobuf.version>
+    <shaded.grpc.version>1.24.0</shaded.grpc.version>
 
 
     <!-- Test properties -->
@@ -199,7 +199,7 @@
     <!-- number of threads/forks to use when running tests in parallel, see parallel-tests profile -->
     <testsThreadCount>4</testsThreadCount>
 
-    <checkstyle.version>8.16</checkstyle.version>
+    <checkstyle.version>8.18</checkstyle.version>
 
     <!--metrics-->
     <dropwizard.version>3.2.5</dropwizard.version>
@@ -370,12 +370,18 @@
       <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
-        <version>1.7.10</version>
+        <version>1.7.29</version>
       </dependency>
       <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-log4j12</artifactId>
-        <version>1.7.10</version>
+        <scope>test</scope>
+        <version>1.7.29</version>
+      </dependency>
+      <dependency>
+        <groupId>log4j</groupId>
+        <artifactId>log4j</artifactId>
+        <version>1.2.17</version>
       </dependency>
 
       <dependency>

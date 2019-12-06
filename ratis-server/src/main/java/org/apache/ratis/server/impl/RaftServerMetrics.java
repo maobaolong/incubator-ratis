@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedMap;
 
+import com.codahale.metrics.Counter;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Timer;
 
@@ -41,10 +42,10 @@ import org.apache.ratis.proto.RaftProtos;
 import org.apache.ratis.proto.RaftProtos.RaftClientRequestProto.TypeCase;
 import org.apache.ratis.protocol.RaftClientRequest;
 import org.apache.ratis.protocol.RaftPeer;
+import org.apache.ratis.protocol.RaftPeerId;
 import org.apache.ratis.server.metrics.RatisMetrics;
 import org.apache.ratis.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.ratis.util.Preconditions;
-import org.apache.ratis.util.ResourceSemaphore;
 
 /**
  * Metric Registry for Raft Group Server. One instance per leader/follower.
@@ -67,7 +68,7 @@ public final class RaftServerMetrics {
   private RaftServerMetrics(RaftServerImpl server) {
     registry = RatisMetrics.getMetricRegistryForRaftServer(server.getMemberId().toString());
     commitInfoCache = server.getCommitInfoCache();
-    addPeerCommitIndexGauge(server.getPeer());
+    addPeerCommitIndexGauge(server.getId());
   }
 
   /**
@@ -84,18 +85,17 @@ public final class RaftServerMetrics {
     registry.gauge(followerHbMetricKey,
         () -> () -> followerLastHeartbeatElapsedTimeMap.get(followerName));
 
-    addPeerCommitIndexGauge(peer);
+    addPeerCommitIndexGauge(peer.getId());
   }
 
   /**
    * Register a commit index tracker for the peer in cluster.
-   * @param peer
    */
-  public void addPeerCommitIndexGauge(RaftPeer peer) {
+  public void addPeerCommitIndexGauge(RaftPeerId peerId) {
     String followerCommitIndexKey = String.format(
-        LEADER_METRIC_PEER_COMMIT_INDEX, peer.getId().toString());
+        LEADER_METRIC_PEER_COMMIT_INDEX, peerId);
     registry.gauge(followerCommitIndexKey, () -> () -> {
-      RaftProtos.CommitInfoProto commitInfoProto = commitInfoCache.get(peer.getId());
+      RaftProtos.CommitInfoProto commitInfoProto = commitInfoCache.get(peerId);
       if (commitInfoProto != null) {
         return commitInfoProto.getCommitIndex();
       }
@@ -149,6 +149,10 @@ public final class RaftServerMetrics {
     return registry.timer(timerName);
   }
 
+  public Counter getCounter(String counterName) {
+    return registry.counter(counterName);
+  }
+
   public Timer getClientRequestTimer(RaftClientRequest request) {
     if (request.is(TypeCase.READ)) {
       return getTimer(RAFT_CLIENT_READ_REQUEST);
@@ -171,8 +175,7 @@ public final class RaftServerMetrics {
     registry.counter(REQUEST_QUEUE_LIMIT_HIT_COUNTER).inc();
   }
 
-  public void addNumPendingRequestsGauge(ResourceSemaphore resourceSemaphore, int capacity) {
-    registry.gauge(REQUEST_QUEUE_SIZE,
-        () -> () -> (capacity - resourceSemaphore.availablePermits()));
+  void addNumPendingRequestsGauge(Gauge queueSize) {
+    registry.gauge(REQUEST_QUEUE_SIZE, () -> queueSize);
   }
 }

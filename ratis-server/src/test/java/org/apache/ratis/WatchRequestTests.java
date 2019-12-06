@@ -29,7 +29,7 @@ import org.apache.ratis.server.impl.RaftServerImpl;
 import org.apache.ratis.server.impl.RaftServerTestUtil;
 import org.apache.ratis.statemachine.SimpleStateMachine4Testing;
 import org.apache.ratis.statemachine.StateMachine;
-import org.apache.ratis.util.LogUtils;
+import org.apache.ratis.util.Log4jUtils;
 import org.apache.ratis.util.ProtoUtils;
 import org.apache.ratis.util.TimeDuration;
 import org.apache.ratis.util.function.CheckedConsumer;
@@ -53,11 +53,11 @@ public abstract class WatchRequestTests<CLUSTER extends MiniRaftCluster>
     implements MiniRaftCluster.Factory.Get<CLUSTER> {
   {
     RaftServerTestUtil.setWatchRequestsLogLevel(Level.DEBUG);
-    LogUtils.setLogLevel(RaftServerImpl.LOG, Level.DEBUG);
+    Log4jUtils.setLogLevel(RaftServerImpl.LOG, Level.DEBUG);
   }
 
   static final int NUM_SERVERS = 3;
-  static final int GET_TIMEOUT_SECOND = 5;
+  static final int GET_TIMEOUT_SECOND = 10;
 
   @Before
   public void setup() {
@@ -116,11 +116,10 @@ public abstract class WatchRequestTests<CLUSTER extends MiniRaftCluster>
   static void runTest(CheckedConsumer<TestParameters, Exception> testCase, MiniRaftCluster cluster, Logger LOG)
       throws Exception {
     try(final RaftClient client = cluster.createClient(RaftTestUtil.waitForLeader(cluster).getId())) {
-      final int[] numMessages = {1, 10, 100};
-      for(int i = 0; i < 5; i++) {
-        final int n = numMessages[ThreadLocalRandom.current().nextInt(numMessages.length)];
+      final int[] numMessages = {1, 10, 20};
+      for(int n : numMessages) {
         final TestParameters p = new TestParameters(n, client, cluster, LOG);
-        LOG.info("{}) {}, {}", i, p, cluster.printServers());
+        LOG.info("{}) {}, {}", n, p, cluster.printServers());
         testCase.accept(p);
       }
     }

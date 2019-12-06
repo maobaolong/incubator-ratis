@@ -32,7 +32,6 @@ import org.apache.ratis.server.impl.RetryCacheTestUtil;
 import org.apache.ratis.server.impl.RetryCache;
 import org.apache.ratis.server.impl.RaftServerImpl;
 import org.apache.ratis.server.impl.ServerProtoUtils;
-import org.apache.ratis.server.metrics.RatisMetrics;
 import org.apache.ratis.server.protocol.TermIndex;
 import org.apache.ratis.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.server.raftlog.RaftLog;
@@ -41,9 +40,9 @@ import org.apache.ratis.statemachine.SimpleStateMachine4Testing;
 import org.apache.ratis.statemachine.StateMachine;
 import org.apache.ratis.statemachine.impl.BaseStateMachine;
 import org.apache.ratis.util.LifeCycle;
+import org.apache.ratis.util.Log4jUtils;
 import org.apache.ratis.util.FileUtils;
 import org.apache.ratis.util.JavaUtils;
-import org.apache.ratis.util.LogUtils;
 import org.apache.ratis.util.SizeInBytes;
 import org.apache.ratis.util.TimeDuration;
 import org.junit.After;
@@ -63,6 +62,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
+import static org.apache.ratis.server.metrics.RatisMetrics.getMetricRegistryForLogWorker;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
@@ -73,9 +73,9 @@ import com.codahale.metrics.Timer;
 
 public class TestSegmentedRaftLog extends BaseTest {
   static {
-    LogUtils.setLogLevel(SegmentedRaftLogWorker.LOG, Level.DEBUG);
-    LogUtils.setLogLevel(SegmentedRaftLogCache.LOG, Level.TRACE);
-    LogUtils.setLogLevel(SegmentedRaftLog.LOG, Level.TRACE);
+    Log4jUtils.setLogLevel(SegmentedRaftLogWorker.LOG, Level.DEBUG);
+    Log4jUtils.setLogLevel(SegmentedRaftLogCache.LOG, Level.TRACE);
+    Log4jUtils.setLogLevel(SegmentedRaftLog.LOG, Level.TRACE);
   }
 
   public static long getOpenSegmentSize(RaftLog raftLog) {
@@ -198,8 +198,7 @@ public class TestSegmentedRaftLog extends BaseTest {
       Assert.assertArrayEquals(entries, entriesFromLog);
       Assert.assertEquals(entries[entries.length - 1], getLastEntry(raftLog));
 
-      RatisMetricRegistry metricRegistryForLogWorker =
-          RatisMetrics.getMetricRegistryForLogWorker(memberId.getPeerId().toString());
+      RatisMetricRegistry metricRegistryForLogWorker = getMetricRegistryForLogWorker(memberId.getPeerId().toString());
 
       Timer raftLogSegmentLoadLatencyTimer = metricRegistryForLogWorker.timer("segmentLoadLatency");
       Assert.assertTrue(raftLogSegmentLoadLatencyTimer.getMeanRate() > 0);
@@ -399,6 +398,18 @@ public class TestSegmentedRaftLog extends BaseTest {
     long endIndexOfClosedSegment = segmentSize * (endTerm - startTerm - 1) - 1;
     long expectedIndex = segmentSize * (endTerm - startTerm - 2);
     purgeAndVerify(startTerm, endTerm, segmentSize, 1, endIndexOfClosedSegment, expectedIndex);
+  }
+
+  @Test
+  public void testPurgeLogMetric() throws Exception {
+    int startTerm = 0;
+    int endTerm = 5;
+    int segmentSize = 200;
+    long endIndexOfClosedSegment = segmentSize * (endTerm - startTerm - 1) - 1;
+    long expectedIndex = segmentSize * (endTerm - startTerm - 2);
+    purgeAndVerify(startTerm, endTerm, segmentSize, 1, endIndexOfClosedSegment, expectedIndex);
+    RatisMetricRegistry metricRegistryForLogWorker = getMetricRegistryForLogWorker(memberId.getPeerId().toString());
+    Assert.assertTrue(metricRegistryForLogWorker.timer("purgeLog").getCount() > 0);
   }
 
   @Test

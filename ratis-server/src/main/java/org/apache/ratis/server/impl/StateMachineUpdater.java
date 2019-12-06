@@ -44,6 +44,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.LongStream;
 
+import com.codahale.metrics.Timer;
+
 /**
  * This class tracks the log entries that have been committed in a quorum and
  * applies them to the state machine. We let a separate thread do this work
@@ -251,7 +253,9 @@ class StateMachineUpdater implements Runnable {
   private void takeSnapshot() {
     final long i;
     try {
+      Timer.Context takeSnapshotTimerContext = stateMachineMetrics.getTakeSnapshotTimer().time();
       i = stateMachine.takeSnapshot();
+      takeSnapshotTimerContext.stop();
 
       final long appliedIndex = getLastAppliedIndex();
       if (i > appliedIndex) {
@@ -288,7 +292,11 @@ class StateMachineUpdater implements Runnable {
     return state == State.RUNNING && getLastAppliedIndex() - snapshotIndex.get() >= autoSnapshotThreshold;
   }
 
-  long getLastAppliedIndex() {
+  private long getLastAppliedIndex() {
     return appliedIndex.get();
+  }
+
+  long getStateMachineLastAppliedIndex() {
+    return stateMachine.getLastAppliedTermIndex().getIndex();
   }
 }
